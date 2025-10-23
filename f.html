@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>🎬 Split Tab Recorder + CHA Mode</title>
+<style>
+  body { font-family: sans-serif; background: #111; color: #eee; text-align: center; }
+  #toolbar { margin: 10px; padding: 10px; background: #222; border-radius: 8px; }
+  input, button, select { margin: 4px; padding: 6px; border-radius: 4px; border: none; }
+  button { background: #555; color: white; cursor: pointer; }
+  button:hover { background: #777; }
+  #frames { display: flex; flex-wrap: wrap; justify-content: center; margin-top: 10px; gap: 6px; }
+  iframe { width: 320px; height: 240px; border: 2px solid #444; border-radius: 8px; background: #000; }
+  .recording { border-color: red !important; box-shadow: 0 0 10px red; }
+  textarea { width: 90%; height: 200px; margin-top: 10px; background: #111; color: #0f0; border: 1px solid #333; border-radius: 6px; font-family: monospace; }
+</style>
+</head>
+<body>
+
+<h2>🎬 Split Tab Recorder + CHA Mode</h2>
+
+<div id="toolbar">
+  🔗 رابط: <input type="text" id="url" value="https://example.com">
+  📑 عدد الصفحات: <input type="number" id="count" value="3" min="1" max="10">
+  <button id="open">فتح الصفحات</button><br>
+  🎥 اختر صفحة للتسجيل: <select id="pageSelect"></select>
+  <button id="record">⏺️ بدء التسجيل</button>
+  <button id="stop" disabled>⏹️ إيقاف</button>
+  <button id="apply" disabled>📤 تطبيق على الكل</button>
+  <button id="cha">🤖 CHA Mode</button>
+</div>
+
+<div id="frames"></div>
+
+<h3>📜 سجلّ الأحداث:</h3>
+<textarea id="log" readonly></textarea>
+
+<script>
+const openBtn = document.getElementById('open');
+const recordBtn = document.getElementById('record');
+const stopBtn = document.getElementById('stop');
+const applyBtn = document.getElementById('apply');
+const chaBtn = document.getElementById('cha');
+const urlInput = document.getElementById('url');
+const countInput = document.getElementById('count');
+const pageSelect = document.getElementById('pageSelect');
+const framesContainer = document.getElementById('frames');
+const logArea = document.getElementById('log');
+
+let iframes = [];
+let eventsLog = [];
+let recording = false;
+let startTime = 0;
+let targetFrame = null;
+
+// إنشاء الإطارات
+openBtn.onclick = () => {
+  framesContainer.innerHTML = '';
+  iframes = [];
+  pageSelect.innerHTML = '';
+  const url = urlInput.value.trim();
+  const n = parseInt(countInput.value,10);
+  for(let i=0;i<n;i++){
+    const frame = document.createElement('iframe');
+    frame.src = url;
+    frame.dataset.index = i;
+    framesContainer.appendChild(frame);
+    iframes.push(frame);
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `صفحة ${i}`;
+    pageSelect.appendChild(opt);
+  }
+  logArea.value = '';
+  eventsLog = [];
+};
+
+// بدء التسجيل
+recordBtn.onclick = () => {
+  const idx = parseInt(pageSelect.value,10);
+  targetFrame = iframes[idx];
+  if(!targetFrame) return alert('اختر صفحة أولا');
+  recordBtn.disabled = true;
+  stopBtn.disabled = false;
+  applyBtn.disabled = true;
+  targetFrame.classList.add('recording');
+  eventsLog = [];
+  startTime = performance.now();
+  recording = true;
+  attachRecorder(targetFrame);
+};
+
+// إيقاف التسجيل
+stopBtn.onclick = () => {
+  recording = false;
+  recordBtn.disabled = false;
+  stopBtn.disabled = true;
+  applyBtn.disabled = false;
+  if(targetFrame) targetFrame.classList.remove('recording');
+  logArea.value = JSON.stringify(eventsLog, null, 2);
+};
+
+// تطبيق الأحداث على الجميع
+applyBtn.onclick = () => {
+  if(!eventsLog.length) return alert('لا توجد أحداث مسجلة!');
+  iframes.forEach(f => {
+    if(f===targetFrame) return;
+    replayEvents(f, eventsLog);
+  });
+};
+
+// ============ التسجيل =============
+function attachRecorder(frame){
+  const doc = frame.contentWindow.document;
+  doc.addEventListener('click', e=>{
+    if(!recording) return;
+    eventsLog.push({
+      type:'click',
+      x: e.clientX,
+      y: e.clientY,
+      t: performance.now()-startTime
+    });
+  });
+  doc.addEventListener('keydown', e=>{
+    if(!recording) return;
+    eventsLog.push({
+      type:'keydown',
+      key: e.key,
+      t: performance.now()-startTime
+    });
+  });
+  doc.addEventListener('keyup', e=>{
+    if(!recording) return;
+    eventsLog.push({
+      type:'keyup',
+      key: e.key,
+      t: performance.now()-startTime
+    });
+  });
+}
+
+// ============ التشغيل =============
+function replayEvents(frame, log){
+  const doc = frame.contentWindow.document;
+  logArea.value = "📤 تطبيق...\n" + JSON.stringify(log, null, 2);
+  log.forEach(ev=>{
+    setTimeout(()=>{
+      if(ev.type==='click'){
+        const el = doc.elementFromPoint(ev.x, ev.y);
+        if(el) el.click();
+        drawClick(doc, ev.x, ev.y);
+      } else if(ev.type==='keydown' || ev.type==='keyup'){
+        const evt = new KeyboardEvent(ev.type, {key: ev.key});
+        doc.dispatchEvent(evt);
+      }
+    }, ev.t);
+  });
+}
+
+function drawClick(doc, x, y){
+  const dot = doc.createElement('div');
+  dot.style.position='fixed';
+  dot.style.left = x+'px';
+  dot.style.top = y+'px';
+  dot.style.width='10px';
+  dot.style.height='10px';
+  dot.style.background='red';
+  dot.style.borderRadius='50%';
+  dot.style.pointerEvents='none';
+  dot.style.zIndex=9999;
+  doc.body.appendChild(dot);
+  setTimeout(()=>dot.remove(),400);
+}
+
+// ============ CHA Mode =============
+chaBtn.onclick = () => {
+  const scriptEvents = [
+    {type:'keydown', key:'Enter', t:0},
+    {type:'keyup', key:'Enter', t:100},
+    {type:'keydown', key:'h', t:300},
+    {type:'keyup', key:'h', t:400},
+    {type:'keydown', key:'i', t:500},
+    {type:'keyup', key:'i', t:600},
+    {type:'keydown', key:'Enter', t:800},
+    {type:'keyup', key:'Enter', t:900}
+  ];
+  logArea.value = "🤖 CHA Mode Activated...\n" + JSON.stringify(scriptEvents, null, 2);
+  iframes.forEach(f => replayEvents(f, scriptEvents));
+};
+</script>
+
+</body>
+</html>
